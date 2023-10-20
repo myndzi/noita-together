@@ -1,5 +1,6 @@
 import PATH from 'node:path';
-import { verifyToken } from '../utils/jwtUtils';
+import jwt from "jsonwebtoken";
+
 import { Envelope } from '../websocket/gen/messages_pb';
 import { FrameType, RecorderFrame } from './util';
 import { Player } from './player';
@@ -10,15 +11,22 @@ export class ConsolePlayer extends Player {
   private lastTimestamp = 0;
   private usernames = new Map<number, string>();
 
-  private async jwtUsername(frame: RecorderFrame<FrameType.WS_OPEN>): Promise<string> {
-    if (!SECRET_ACCESS) return '';
-    const url = frame.payload.substring(1);
-    const token = decodeURIComponent(PATH.basename(url));
-    try {
-      return verifyToken(token, SECRET_ACCESS).preferred_username;
-    } catch (e) {
-      return '';
+  private async jwtUsername(frame: RecorderFrame<FrameType.WS_OPEN>): Promise<string|null> {
+    if (typeof frame.payload !== 'string') {
+      // somehow we recorded empty data - maybe fixed now that we keep a WeakSet?
+      return null;
     }
+
+    if (!SECRET_ACCESS) return '';
+    const token = decodeURIComponent(PATH.basename(frame.payload));
+
+    return new Promise((resolve, reject) => {
+      jwt.verify(token, SECRET_ACCESS, {ignoreExpiration: true}, (err, data) => {
+        if (err) reject(err);
+        else if (typeof data !== 'object') reject('unexpected jwt contents');
+        else resolve(data.preferred_username ?? data.sub ?? frame.connection_id.toString());
+      });
+    });
   }
 
   private waitTime(timestamp: number) {
@@ -35,8 +43,14 @@ export class ConsolePlayer extends Player {
     let name: string|undefined = undefined;
     switch (frame.type) {
       case FrameType.WS_OPEN:
-        name = await this.jwtUsername(frame);
-        this.usernames.set(frame.connection_id, name);
+        const jwtName = await this.jwtUsername(frame);
+        if (jwtName !== null) {
+          this.usernames.set(frame.connection_id, jwtName);
+          name = jwtName;
+        } else {
+          // somehow the payload is incorrect
+          name = '<error>';
+        }
         msg = 'connected';
         break;
       case FrameType.WS_CLOSE:
@@ -50,7 +64,7 @@ export class ConsolePlayer extends Player {
           const decoded = Envelope.fromBinary(frame.payload);
           msg = `${decoded.kind.case}=${decoded.kind.value?.action.case ?? 'unknown'}`;
         } catch (e) {
-          msg = `decode failure: ${e instanceof Error ? e.message : String(e)}: ${frame.payload.toString('hex')}`;
+          msg = `decode failure: ${frame.payload.toString('hex')}: ${e instanceof Error ? e.message : String(e)}`;
         }
         break;
     }
@@ -59,9 +73,10 @@ export class ConsolePlayer extends Player {
 
     const namePrefix = name !== '' ? `: ${name}` : '';
     const conn_id = (frame.connection_id.toString().padEnd(3));
-    const time_since = (this.waitTime(frame.timestamp_ms)/1000).toString().padEnd(8);
+    const time_since = (this.waitTime(frame.timestamp_ms)/1000).toString().padEnd(10);
+    const frame_type = FrameType[frame.type].padEnd(14);
 
-    console.log(`[${conn_id} +${time_since}] : ${FrameType[frame.type]}${namePrefix} :`, msg);
+    console.log(`[${frame_type}: ${conn_id} @ +${time_since}] ${namePrefix}`, msg);
   }
 
   done() {

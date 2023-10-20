@@ -11,6 +11,8 @@ export class Recorder {
   private waitUntil = 0;
   private id = 0;
 
+  private sockets = new WeakSet<WebSocket>();
+
   constructor(path: string) {
     this.path = path;
   }
@@ -71,6 +73,8 @@ export class Recorder {
   }
 
   tap(socket: WebSocket, url: string) {
+    if (this.sockets.has(socket)) return;
+
     const id = this.id++;
 
     this.writeFrame(FrameType.WS_OPEN, id, url);
@@ -79,6 +83,7 @@ export class Recorder {
       // type RawData = Buffer | ArrayBuffer | Buffer[];
       // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/receiver.js#L537-L543
       // binarytype is 'nodebuffer' by default, so data should reliably be a Buffer instance
+
       this.writeFrame(FrameType.WS_CLOSE, id, code),
     );
     socket.on('message', (data: WebSocket.RawData, isBinary: boolean) =>
