@@ -89,6 +89,7 @@ class NoitaTogetherWebsocket{
 
     private subscribeEvents(){
         console.log("subscribeEvents...")
+        recorder.open();
         this.wsServer?.on('upgrade', async (req, socket: Socket, head) => {
             try {
                 if(!req.url){

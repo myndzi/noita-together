@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import PATH from 'node:path';
+import { Stream } from 'node:stream';
+import WebSocket from 'ws';
 
 enum FrameType {
   WS_OPEN,
@@ -7,25 +9,100 @@ enum FrameType {
   WS_BINARY,
   WS_TEXT,
 }
-import WebSocket from 'ws';
-var test = new WebSocket.Server({ noServer: true, perMessageDeflate: false });
-test.on('connection', (socket, req) => {
-  socket.on('message', (data, isBinary) => {
-    data;
-  });
-});
+
+const isMemberOf =
+  <T extends {}>(e: T) =>
+  (token: unknown): token is T[keyof T] =>
+    Object.values(e).includes(token as T[keyof T]);
+
+const isFrameType = isMemberOf(FrameType);
+
+type RecorderFrame<T = FrameType> = {
+  type: T;
+  connection_id: number;
+  timestamp_ms: number;
+  payload: T extends FrameType.WS_OPEN ? string : T extends FrameType.WS_CLOSE ? number : Buffer;
+};
+
+async function* readRecorderFrames(stream: fs.ReadStream): AsyncGenerator<RecorderFrame> {
+  let count = 0;
+  let abspos = 0;
+
+  let acc: Buffer = Buffer.of();
+
+  for await (const chunk of stream) {
+    acc = Buffer.concat([acc, chunk]);
+
+    while (true) {
+      // ensure we have all the data
+      if (acc.length < 4) break;
+      const frameSize = acc.readUInt32LE(0);
+      if (acc.length < frameSize) break;
+
+      // shift a frame from the accumulator buffer
+      const frame = acc.subarray(0, frameSize);
+      acc = acc.subarray(frameSize);
+
+      // prettier-ignore
+      try {
+        // decode the frame
+        /* skip frame size - already accounted for */  let pos =  4;
+        const timestamp_ms = frame.readDoubleLE(pos);      pos += 8;
+        const connection_id = frame.readUInt16LE(pos);     pos += 2;
+        const type = frame.readUint8(pos);                 pos += 1;
+        const data = frame.subarray(pos);
+        
+        if (!isFrameType(type)) {
+          throw new Error('Decoded invalid frame type: '+type);
+        }
+        switch (type) {
+          case FrameType.WS_OPEN:
+            yield {
+              type,
+              timestamp_ms,
+              connection_id,
+              payload: data.toString('utf-8')
+            } as RecorderFrame<FrameType.WS_OPEN>;
+          case FrameType.WS_CLOSE:
+            yield {
+              type,
+              timestamp_ms,
+              connection_id,
+              payload: data.readUint16LE(0),
+            } as RecorderFrame<FrameType.WS_CLOSE>;
+          case FrameType.WS_BINARY:
+          case FrameType.WS_TEXT:
+            yield {
+              type,
+              timestamp_ms,
+              connection_id,
+              payload: data
+            } as RecorderFrame<FrameType.WS_TEXT|FrameType.WS_BINARY>;
+        }
+      } catch (e) {
+        throw new Error(`failed to decode frame=${count} at pos=${abspos}: ${e}`);
+      }
+
+      count++;
+      abspos += frameSize;
+    }
+
+    if (acc.length) {
+      throw new Error('read stream ended with an incomplete frame');
+    }
+  }
+}
 
 class Recorder {
-  private session: fs.WriteStream;
+  private readonly path: string;
+  private session?: fs.WriteStream;
+
   private lastWarnId = -1;
   private waitUntil = 0;
   private id = 0;
-  private ids = new WeakMap<WebSocket, number>();
 
   constructor(path: string) {
-    const timestamp = new Date().toISOString();
-    const filename = PATH.resolve(path, `session-${timestamp}`);
-    this.session = fs.createWriteStream(filename);
+    this.path = path;
   }
 
   private warn(warnId: number, msg: string) {
@@ -39,8 +116,12 @@ class Recorder {
   }
 
   private writeFrame(type: FrameType, id: number, _data: Buffer | number | string): void {
+    if (!(this.session instanceof fs.WriteStream)) {
+      this.warn(0, 'incorrect usage: session not open');
+      return;
+    }
     if (!this.session.writable) {
-      this.warn(0, 'not writable');
+      this.warn(1, 'session not writable');
       return;
     }
 
@@ -64,11 +145,11 @@ class Recorder {
 
     // prettier-ignore
     {
-      const header = Buffer.alloc(8 + 1 + 2 + 4);  let pos = 0;
-      header.writeDoubleLE(Date.now(), pos);           pos += 8; // timestamp
-      header.writeUInt8(type, pos);                    pos += 1; // message type
-      header.writeUInt16LE(id, pos);                   pos += 2; // connection id
-      header.writeUInt32LE(data.length);               pos += 4; // payload size
+      const header = Buffer.alloc(4 + 8 + 2 + 1);         let pos =  0;
+      header.writeUInt32LE(header.length + data.length);      pos += 4; // frame size
+      header.writeDoubleLE(Date.now(), pos);                  pos += 8; // timestamp
+      header.writeUInt16LE(id, pos);                          pos += 2; // connection id
+      header.writeUInt8(type, pos);                           pos += 1; // message type
 
       this.session.write(header);
       this.session.write(data);
@@ -90,6 +171,37 @@ class Recorder {
       this.writeFrame(isBinary ? FrameType.WS_BINARY : FrameType.WS_TEXT, id, <Buffer>data),
     );
   }
+
+  open() {
+    if (this.session instanceof fs.WriteStream) {
+      this.session.end();
+    }
+
+    const timestamp = new Date().toISOString();
+    const filename = PATH.resolve(this.path, `session-${timestamp}`);
+    this.session = fs.createWriteStream(filename);
+  }
+
+  async play(filename: string) {
+    const abspath = PATH.resolve(this.path, filename);
+    const stat = fs.statSync(abspath);
+    if (!stat.isFile()) {
+      this.warn(2, `Not a file: ${filename}`);
+      return;
+    }
+
+    try {
+      fs.accessSync(abspath, fs.constants.R_OK);
+    } catch (e) {
+      this.warn(3, `Cannot read: ${filename}`);
+      return;
+    }
+
+    const stream = fs.createReadStream(abspath);
+    for await (const frame of readRecorderFrames(stream)) {
+      console.log(frame);
+    }
+  }
 }
 
 export const recorder = ((): Recorder => {
@@ -101,7 +213,7 @@ export const recorder = ((): Recorder => {
     if (!stat.isDirectory()) throw `Path ${path} is not a directory`;
 
     try {
-      fs.accessSync(path, fs.constants.W_OK);
+      fs.accessSync(path, fs.constants.R_OK | fs.constants.W_OK);
     } catch (e) {
       throw `Cannot write to ${path}`;
     }
@@ -112,7 +224,16 @@ export const recorder = ((): Recorder => {
 
     const noop = () => {};
     return {
-      tap: noop as Recorder['tap'],
-    } as Recorder;
+      open: noop,
+      tap: noop,
+      play: () => {
+        console.error('Cannot play: set RECORD_PATH to a valid readable/writable directory');
+      },
+    } as any;
   }
 })();
+
+// playback
+if (require.main === module) {
+  recorder.play(process.argv[2]);
+}
