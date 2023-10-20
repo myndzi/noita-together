@@ -12,6 +12,7 @@ import {PendingConnection} from "../entity/PendingConnection";
 import AuthSocket from "./authWebsocket";
 import {Socket} from "net";
 import fs from "fs";
+import { recorder } from "../recorder";
 
 const SECRET_ACCESS = process.env.SECRET_JWT_ACCESS as string
 
@@ -135,6 +136,7 @@ class NoitaTogetherWebsocket{
                     }
 
                     Lobby.server.handleUpgrade(req, socket, head, (ws: any) => {
+                        recorder.tap(ws, url);
                         Lobby.server.emit('connection', ws, req, user)
                     })
                 }
