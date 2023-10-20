@@ -137,8 +137,8 @@ class NoitaTogetherWebsocket{
                     }
 
                     Lobby.server.handleUpgrade(req, socket, head, (ws: any) => {
-                        recorder.tap(ws, url);
-                        Lobby.server.emit('connection', ws, req, user)
+                        const server_sent = recorder.tap(ws, url);
+                        Lobby.server.emit('connection', ws, req, user, server_sent)
                     })
                 }
 

@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import PATH from 'node:path';
-import { Stream } from 'node:stream';
 import WebSocket from 'ws';
 
 enum FrameType {
   WS_OPEN,
   WS_CLOSE,
-  WS_BINARY,
-  WS_TEXT,
+  WS_C2S_BINARY,
+  WS_C2S_TEXT,
+  WS_S2C_BINARY,
+  WS_S2C_TEXT,
 }
 
 const isMemberOf =
@@ -70,14 +71,16 @@ async function* readRecorderFrames(stream: fs.ReadStream): AsyncGenerator<Record
               connection_id,
               payload: data.readUint16LE(0),
             } as RecorderFrame<FrameType.WS_CLOSE>;
-          case FrameType.WS_BINARY:
-          case FrameType.WS_TEXT:
+          case FrameType.WS_C2S_BINARY:
+          case FrameType.WS_S2C_BINARY:
+          case FrameType.WS_C2S_TEXT:
+          case FrameType.WS_S2C_TEXT:
             yield {
               type,
               timestamp_ms,
               connection_id,
               payload: data
-            } as RecorderFrame<FrameType.WS_TEXT|FrameType.WS_BINARY>;
+            } as RecorderFrame<FrameType.WS_C2S_BINARY|FrameType.WS_S2C_BINARY|FrameType.WS_C2S_TEXT|FrameType.WS_S2C_TEXT>;
         }
       } catch (e) {
         throw new Error(`failed to decode frame=${count} at pos=${abspos}: ${e}`);
@@ -137,9 +140,13 @@ class Recorder {
         data = Buffer.alloc(2);
         data.writeUInt16LE(_data as number);
         break;
-      case FrameType.WS_BINARY:
-      case FrameType.WS_TEXT:
-        data = _data as Buffer;
+      case FrameType.WS_C2S_BINARY:
+      case FrameType.WS_S2C_BINARY:
+      case FrameType.WS_C2S_TEXT:
+      case FrameType.WS_S2C_TEXT:
+        // ws.send(data: number) calls data.toString(); see:
+        // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/websocket.js#L452
+        data = typeof _data === 'number' ? Buffer.from(_data.toString()) : Buffer.from(_data);
         break;
     }
 
@@ -168,8 +175,40 @@ class Recorder {
       this.writeFrame(FrameType.WS_CLOSE, id, code),
     );
     socket.on('message', (data: WebSocket.RawData, isBinary: boolean) =>
-      this.writeFrame(isBinary ? FrameType.WS_BINARY : FrameType.WS_TEXT, id, <Buffer>data),
+      this.writeFrame(isBinary ? FrameType.WS_C2S_BINARY : FrameType.WS_C2S_TEXT, id, <Buffer>data),
     );
+
+    // for best accuracy, we steal ws's `toBuffer`, which it calls internally for sender.send's arguments
+    const toBuffer: (data: any) => Buffer = require('ws/lib/buffer-util').toBuffer;
+
+    // nt websocket server only calls ws.send in User.js, with no opts.
+    // isBinary is thus inferred from the data type of the data, see
+    // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/websocket.js#L460
+    const server_sent: WebSocket['send'] = (_data) => {
+      // we unfortunately have to "reproduce" ws.send's behavior here, since we can't easily
+      // tap into what it _actually_ did
+      let data: Buffer;
+      let isBinary: boolean;
+
+      switch (typeof _data) {
+        case 'number':
+          data = toBuffer(_data.toString());
+          isBinary = false;
+          break;
+        case 'string':
+          data = toBuffer(_data);
+          isBinary = false;
+          break;
+        default:
+          data = toBuffer(_data);
+          isBinary = true;
+          break;
+      }
+
+      this.writeFrame(isBinary ? FrameType.WS_S2C_BINARY : FrameType.WS_S2C_TEXT, id, data);
+    };
+
+    return server_sent;
   }
 
   open() {
@@ -225,7 +264,7 @@ export const recorder = ((): Recorder => {
     const noop = () => {};
     return {
       open: noop,
-      tap: noop,
+      tap: () => noop,
       play: () => {
         console.error('Cannot play: set RECORD_PATH to a valid readable/writable directory');
       },

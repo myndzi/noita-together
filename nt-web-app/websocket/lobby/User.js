@@ -1,3 +1,4 @@
+import { recorder } from "../../recorder";
 import {decode} from "../messageHandler";
 import {noop} from "./LobbyUtils"
 
@@ -57,8 +58,12 @@ class User {
      * @type {any[]}
      */
     wsQueue = [];
+    /**
+     * @type {WebSocket['send']}
+     */
+    __server_sent;
 
-    constructor(id, name, uaccess, socket, lobby) {
+    constructor(id, name, uaccess, socket, lobby, server_sent) {
         this.id = id
         this.name = name
         this.uaccess = uaccess
@@ -69,6 +74,7 @@ class User {
             this.Queue()
         }, 1000)
         */
+        this.__server_sent = server_sent;
         this.socket.on("message", (msg) => this.OnMessage(msg))
         this.socket.on("pong", () => this.OnPong())
         this.socket.on("close", (code, reason) => this.OnClose(code, reason))
@@ -81,6 +87,7 @@ class User {
 
     Send(data) {
         this.socket.send(data)
+        this.__server_sent(data)
     }
 
     Write(data, allowQueue) {
@@ -92,6 +99,7 @@ class User {
         }
         */
         this.socket._sender.sendFrame(data)//why no worky
+        this.__server_sent(data)
     }
     /*
     Queue() {
