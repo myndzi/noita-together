@@ -1,17 +1,20 @@
 import fs from 'node:fs';
 import PATH from 'node:path';
+import { Writable } from 'node:stream';
+
 import WebSocket from 'ws';
-import { FrameType  } from './util';
+
+import { FrameType } from './util';
 
 export class Recorder {
   private readonly path: string;
-  private session?: fs.WriteStream;
+  private session?: Writable;
 
   private lastWarnId = -1;
   private waitUntil = 0;
-  private id = 0;
+  private id = 1;
 
-  private sockets = new WeakSet<WebSocket>();
+  private sockets = new WeakMap<WebSocket, number>();
 
   constructor(path: string) {
     this.path = path;
@@ -28,7 +31,7 @@ export class Recorder {
   }
 
   private writeFrame(type: FrameType, id: number, _data: Buffer | number | string): void {
-    if (!(this.session instanceof fs.WriteStream)) {
+    if (!(this.session instanceof Writable)) {
       this.warn(0, 'incorrect usage: session not open');
       return;
     }
@@ -72,31 +75,14 @@ export class Recorder {
     }
   }
 
-  tap(socket: WebSocket, url: string) {
-    if (this.sockets.has(socket)) return;
-
-    const id = this.id++;
-
-    this.writeFrame(FrameType.WS_OPEN, id, url);
-
-    socket.once('close', (code: number) =>
-      // type RawData = Buffer | ArrayBuffer | Buffer[];
-      // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/receiver.js#L537-L543
-      // binarytype is 'nodebuffer' by default, so data should reliably be a Buffer instance
-
-      this.writeFrame(FrameType.WS_CLOSE, id, code),
-    );
-    socket.on('message', (data: WebSocket.RawData, isBinary: boolean) =>
-      this.writeFrame(isBinary ? FrameType.WS_C2S_BINARY : FrameType.WS_C2S_TEXT, id, <Buffer>data),
-    );
-
+  private server_sent(id: number): WebSocket['send'] {
     // for best accuracy, we steal ws's `toBuffer`, which it calls internally for sender.send's arguments
     const toBuffer: (data: any) => Buffer = require('ws/lib/buffer-util').toBuffer;
 
     // nt websocket server only calls ws.send in User.js, with no opts.
     // isBinary is thus inferred from the data type of the data, see
     // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/websocket.js#L460
-    const server_sent: WebSocket['send'] = (_data) => {
+    return _data => {
       // we unfortunately have to "reproduce" ws.send's behavior here, since we can't easily
       // tap into what it _actually_ did
       let data: Buffer;
@@ -119,17 +105,42 @@ export class Recorder {
 
       this.writeFrame(isBinary ? FrameType.WS_S2C_BINARY : FrameType.WS_S2C_TEXT, id, data);
     };
-
-    return server_sent;
   }
 
-  open() {
-    if (this.session instanceof fs.WriteStream) {
+  tap(socket: WebSocket, url: string): WebSocket['send'] {
+    const old_id = this.sockets.get(socket);
+    if (old_id) return this.server_sent(old_id);
+
+    const id = this.id++;
+    this.sockets.set(socket, id);
+
+    this.writeFrame(FrameType.WS_OPEN, id, url);
+
+    socket.once('close', (code: number) =>
+      // type RawData = Buffer | ArrayBuffer | Buffer[];
+      // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/receiver.js#L537-L543
+      // binarytype is 'nodebuffer' by default, so data should reliably be a Buffer instance
+
+      this.writeFrame(FrameType.WS_CLOSE, id, code)
+    );
+    socket.on('message', (data: WebSocket.RawData, isBinary: boolean) =>
+      this.writeFrame(isBinary ? FrameType.WS_C2S_BINARY : FrameType.WS_C2S_TEXT, id, <Buffer>data)
+    );
+
+    return this.server_sent(id);
+  }
+
+  open(target?: Writable) {
+    if (this.session instanceof Writable) {
       this.session.end();
     }
 
-    const timestamp = new Date().toISOString();
-    const filename = PATH.resolve(this.path, `session-${timestamp}`);
-    this.session = fs.createWriteStream(filename);
+    if (!target) {
+      const timestamp = new Date().toISOString();
+      const filename = PATH.resolve(this.path, `session-${timestamp}`);
+      this.session = fs.createWriteStream(filename);
+    } else {
+      this.session = target;
+    }
   }
 }

@@ -1,9 +1,10 @@
 import PATH from 'node:path';
 import fs from 'node:fs';
 
-import { FrameType, RecorderFrame, isFrameType } from "./util";
+import { FrameType, RecorderFrame, isFrameType } from './util';
+import { Readable } from 'node:stream';
 
-export async function* readRecorderFrames(stream: fs.ReadStream): AsyncGenerator<RecorderFrame, number> {
+export async function* readRecorderFrames(stream: Readable): AsyncGenerator<RecorderFrame, number> {
   let count = 0;
   let abspos = 0;
 
@@ -43,6 +44,7 @@ export async function* readRecorderFrames(stream: fs.ReadStream): AsyncGenerator
               connection_id,
               payload: data.toString('utf-8')
             } as RecorderFrame<FrameType.WS_OPEN>;
+            break;
           case FrameType.WS_CLOSE:
             yield {
               type,
@@ -50,6 +52,7 @@ export async function* readRecorderFrames(stream: fs.ReadStream): AsyncGenerator
               connection_id,
               payload: data.readUint16LE(0),
             } as RecorderFrame<FrameType.WS_CLOSE>;
+            break;
           case FrameType.WS_C2S_BINARY:
           case FrameType.WS_S2C_BINARY:
           case FrameType.WS_C2S_TEXT:
@@ -60,6 +63,7 @@ export async function* readRecorderFrames(stream: fs.ReadStream): AsyncGenerator
               connection_id,
               payload: data
             } as RecorderFrame<FrameType.WS_C2S_BINARY|FrameType.WS_S2C_BINARY|FrameType.WS_C2S_TEXT|FrameType.WS_S2C_TEXT>;
+            break;
         }
       } catch (e) {
         throw new Error(`failed to decode frame=${count} at pos=${abspos}: ${e}`);
@@ -85,7 +89,7 @@ export abstract class Player {
     if (!stat.isDirectory()) throw new Error(`Path ${path} is not a directory`);
 
     try {
-      fs.accessSync(path, fs.constants.R_OK|fs.constants.X_OK);
+      fs.accessSync(path, fs.constants.R_OK | fs.constants.X_OK);
     } catch (e) {
       throw new Error(`Cannot read from ${path}`);
     }

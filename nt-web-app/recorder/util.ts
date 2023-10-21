@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-
 export enum FrameType {
   WS_OPEN,
   WS_CLOSE,
@@ -15,8 +13,12 @@ export const isMemberOf =
     Object.values(e).includes(token as T[keyof T]);
 
 export const isFrameType = isMemberOf(FrameType);
+export const isFrame = <T extends FrameType, RF extends RecorderFrame<T>>(
+  type: T,
+  v: RecorderFrame<FrameType>
+): v is RF => isFrameType(type) && v.type === type;
 
-export type RecorderFrame<T = FrameType> = {
+export type RecorderFrame<T extends FrameType = FrameType> = {
   type: T;
   connection_id: number;
   timestamp_ms: number;
@@ -27,4 +29,3 @@ export interface IRecorderPlayer {
   tick(_frame: RecorderFrame<FrameType>): Promise<void>;
   destroy(): Promise<void>;
 }
-

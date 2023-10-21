@@ -1,5 +1,5 @@
 import PATH from 'node:path';
-import jwt from "jsonwebtoken";
+import jwt from 'jsonwebtoken';
 
 import { Envelope } from '../websocket/gen/messages_pb';
 import { FrameType, RecorderFrame } from './util';
@@ -11,7 +11,7 @@ export class ConsolePlayer extends Player {
   private lastTimestamp = 0;
   private usernames = new Map<number, string>();
 
-  private async jwtUsername(frame: RecorderFrame<FrameType.WS_OPEN>): Promise<string|null> {
+  private async jwtUsername(frame: RecorderFrame<FrameType.WS_OPEN>): Promise<string | null> {
     if (typeof frame.payload !== 'string') {
       // somehow we recorded empty data - maybe fixed now that we keep a WeakSet?
       return null;
@@ -21,7 +21,7 @@ export class ConsolePlayer extends Player {
     const token = decodeURIComponent(PATH.basename(frame.payload));
 
     return new Promise((resolve, reject) => {
-      jwt.verify(token, SECRET_ACCESS, {ignoreExpiration: true}, (err, data) => {
+      jwt.verify(token, SECRET_ACCESS, { ignoreExpiration: true }, (err, data) => {
         if (err) reject(err);
         else if (typeof data !== 'object') reject('unexpected jwt contents');
         else resolve(data.preferred_username ?? data.sub ?? frame.connection_id.toString());
@@ -30,17 +30,23 @@ export class ConsolePlayer extends Player {
   }
 
   private waitTime(timestamp: number) {
-    const diff = timestamp-this.lastTimestamp;
+    const diff = timestamp - this.lastTimestamp;
     this.lastTimestamp = timestamp;
     return diff;
   }
 
   async tick(_frame: RecorderFrame<FrameType>) {
-    const frame = _frame.type === FrameType.WS_OPEN ? _frame as RecorderFrame<FrameType.WS_OPEN> : _frame.type === FrameType.WS_CLOSE ? _frame as RecorderFrame<FrameType.WS_CLOSE> :
-    _frame as RecorderFrame<FrameType.WS_C2S_BINARY|FrameType.WS_C2S_TEXT|FrameType.WS_S2C_BINARY|FrameType.WS_S2C_TEXT>;
+    const frame =
+      _frame.type === FrameType.WS_OPEN
+        ? (_frame as RecorderFrame<FrameType.WS_OPEN>)
+        : _frame.type === FrameType.WS_CLOSE
+        ? (_frame as RecorderFrame<FrameType.WS_CLOSE>)
+        : (_frame as RecorderFrame<
+            FrameType.WS_C2S_BINARY | FrameType.WS_C2S_TEXT | FrameType.WS_S2C_BINARY | FrameType.WS_S2C_TEXT
+          >);
 
     let msg: any;
-    let name: string|undefined = undefined;
+    let name: string | undefined = undefined;
     switch (frame.type) {
       case FrameType.WS_OPEN:
         const jwtName = await this.jwtUsername(frame);
@@ -71,15 +77,16 @@ export class ConsolePlayer extends Player {
 
     name = name ?? this.usernames.get(frame.connection_id) ?? '';
 
-    const namePrefix = name !== '' ? `: ${name}` : '';
-    const conn_id = (frame.connection_id.toString().padEnd(3));
-    const time_since = (this.waitTime(frame.timestamp_ms)/1000).toString().padEnd(10);
+    const namePrefix = name !== '' ? ` ${name} :` : '';
+    const conn_id = frame.connection_id.toString().padEnd(3);
+    const time_since = (this.waitTime(frame.timestamp_ms) / 1000).toString().padEnd(10);
     const frame_type = FrameType[frame.type].padEnd(14);
 
-    console.log(`[${frame_type}: ${conn_id} @ +${time_since}] ${namePrefix}`, msg);
+    console.log(`[${frame_type}: ${conn_id} @ +${time_since}]${namePrefix}`, msg);
   }
 
   done() {
-    if (!SECRET_ACCESS) console.error('Userdata decoding was not performed because SECRET_ACCESS env variable was unset');
+    if (!SECRET_ACCESS)
+      console.error('Userdata decoding was not performed because SECRET_ACCESS env variable was unset');
   }
 }
