@@ -24,7 +24,7 @@ export const recorder = ((): Recorder => {
     frameWriter: noop,
     upgraded: noop,
   };
-  return noopRecorder as Recorder;
+  return recorder ?? (noopRecorder as Recorder);
 })();
 
 // playback
