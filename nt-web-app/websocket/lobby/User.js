@@ -59,11 +59,11 @@ class User {
      */
     wsQueue = [];
     /**
-     * @type {WebSocket['send']}
+     * @type {FrameWriter|undefined}
      */
-    __server_sent;
+    frameWriter;
 
-    constructor(id, name, uaccess, socket, lobby, server_sent) {
+    constructor(id, name, uaccess, socket, lobby) {
         this.id = id
         this.name = name
         this.uaccess = uaccess
@@ -74,11 +74,11 @@ class User {
             this.Queue()
         }, 1000)
         */
-        this.__server_sent = server_sent;
         this.socket.on("message", (msg) => this.OnMessage(msg))
         this.socket.on("pong", () => this.OnPong())
         this.socket.on("close", (code, reason) => this.OnClose(code, reason))
         this.socket.on("error", (error) => this.OnError(error))
+        this.frameWriter = recorder.frameWriter(socket);
     }
 
     get inRoom() {
@@ -87,7 +87,7 @@ class User {
 
     Send(data) {
         this.socket.send(data)
-        this.__server_sent(data)
+        this.frameWriter?.server_sent(data);
     }
 
     Write(data, allowQueue) {
@@ -99,7 +99,7 @@ class User {
         }
         */
         this.socket._sender.sendFrame(data)//why no worky
-        this.__server_sent(data)
+        this.frameWriter?.server_sent(data);
     }
     /*
     Queue() {

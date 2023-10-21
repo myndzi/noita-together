@@ -1,82 +1,101 @@
-import assert from 'node:assert';
-import EventEmitter from 'node:events';
-import { PassThrough, Readable } from 'node:stream';
-
-import type { WebSocket } from 'ws';
+import ws from 'ws';
+import { Socket } from 'node:net';
+import { EventEmitter } from 'node:events';
+import { Writable, PassThrough } from 'node:stream';
 
 import { Recorder } from './recorder';
-import { FrameType, RecorderFrame, isFrame, isFrameType } from './util';
-import { readRecorderFrames } from './player';
+import { FrameWriter } from './frame_writer';
+import { FrameType as FT, PartialFrame, RecorderFrame, readRecorderFrames } from './frame';
 
-const ws = new EventEmitter() as unknown as WebSocket;
+const clock = (() => {
+  let clocktime = 1337;
+  return () => clocktime++;
+})();
 
-const recorder = new Recorder('/tmp');
-const passthrough = new PassThrough();
-recorder.open(passthrough);
-
-const url = 'http://example.com/ws/token';
-
-const server_sent = recorder.tap(ws, url);
-const ss = recorder.tap(ws, 'ignored'); // should only hook events once
-assert.strictEqual(server_sent, ss, 'unexpectedly got a different server_sent function from .tap with the same socket');
-
-ws.emit('message', 'c2s_string', false);
-server_sent('s2c_string');
-
-ws.emit('message', Buffer.from('c2s_buffer'), true);
-server_sent(Buffer.from('s2c_buffer'));
-
-ws.emit('close', 1006);
-passthrough.end();
-
-function assertFrame(idx: number, last_timestamp: number, actual: RecorderFrame, expected: RecorderFrame): number {
-  assert.strictEqual(actual.type, expected.type, `${idx} type: actual=${actual.type} expected=${expected.type}`);
-  if (isFrame(FrameType.WS_OPEN, actual) && isFrame(FrameType.WS_OPEN, expected)) {
-    assert.strictEqual(
-      actual.payload,
-      expected.payload,
-      `${idx} payload: actual=${actual.payload} expected=${expected.payload}`
-    );
-  } else if (
-    (isFrame(FrameType.WS_C2S_BINARY, actual) && isFrame(FrameType.WS_C2S_BINARY, expected)) ||
-    (isFrame(FrameType.WS_C2S_TEXT, actual) && isFrame(FrameType.WS_C2S_TEXT, expected)) ||
-    (isFrame(FrameType.WS_S2C_BINARY, actual) && isFrame(FrameType.WS_S2C_BINARY, expected)) ||
-    (isFrame(FrameType.WS_S2C_TEXT, actual) && isFrame(FrameType.WS_S2C_TEXT, expected))
-  ) {
-    assert(actual.payload);
-  } else if (isFrame(FrameType.WS_CLOSE, actual) && isFrame(FrameType.WS_CLOSE, expected)) {
-    assert.strictEqual(
-      actual.payload,
-      expected.payload,
-      `${idx} payload: actual=${actual.payload} expected=${expected.payload}`
-    );
-  } else {
-    assert(isFrameType(actual.type), `${idx} type: actual=${actual.type} (not an enum member)`);
+class TestRecorder extends Recorder {
+  protected constructor(session: Writable) {
+    super(session, (stream: Writable, id: number) => new FrameWriter(stream, id, clock));
   }
-  assert(actual.timestamp_ms >= last_timestamp, `${idx} timestamp_ms: not monotonically increasing`);
-  return actual.timestamp_ms;
 }
 
-async function test(rs: Readable, expected: Omit<RecorderFrame, 'connection_id' | 'timestamp_ms'>[]) {
-  let ts = 0;
-  let i = 0;
+describe('record playback', () => {
+  it('reads back the same written sequence', async () => {
+    const socket = {} as unknown as Socket;
+    const ws = new EventEmitter() as unknown as ws.WebSocket;
+    const passthrough = new PassThrough();
+    const recorder = TestRecorder.to(passthrough);
 
-  for await (const actual of readRecorderFrames(rs)) {
-    ts = assertFrame(i++, ts, actual, expected.shift() as RecorderFrame);
-    console.log(`frame ${i}: OK`);
-  }
+    const expected: PartialFrame<'type' | 'payload' | 'cid' | 'ts_ms'>[] = [];
 
-  assert.equal(expected.length, 0, `${expected.length} Unconsumed expectations remain`);
-}
+    const url = 'http://example.com/ws/token';
+    let time = 1337;
 
-// prettier-ignore
-test(passthrough, [
-  { type: FrameType.WS_OPEN,       payload: url                       },
-  { type: FrameType.WS_C2S_TEXT,   payload: Buffer.from('c2s_string') },
-  { type: FrameType.WS_S2C_TEXT,   payload: Buffer.from('s2c_string') },
-  { type: FrameType.WS_C2S_BINARY, payload: Buffer.from('c2s_buffer') },
-  { type: FrameType.WS_S2C_BINARY, payload: Buffer.from('s2c_buffer') },
-  { type: FrameType.WS_CLOSE,      payload: 1006                      },
-]).then(() => {
-  console.log('PASSED');
+    const fw1 = recorder.connected(socket, url);
+    expected.push({ cid: 1, type: FT.WS_OPEN, payload: url, ts_ms: time++ });
+
+    const fw2 = recorder.upgraded(socket, ws, 0);
+    expected.push({ cid: 1, type: FT.WS_UPGRADED, payload: 0, ts_ms: time++ });
+
+    expect(fw1).toBeDefined();
+    expect(fw2).toBeDefined();
+    expect(fw1).toBe(fw2);
+
+    if (!fw1 || !fw2) throw new Error('impossible');
+
+    const socket2 = {} as unknown as Socket;
+    recorder.connected(socket2, 'foo');
+    expected.push({ cid: 2, type: FT.WS_OPEN, payload: 'foo', ts_ms: time++ });
+
+    recorder.failed(socket2, 'unauthorized');
+    expected.push({ cid: 2, type: FT.WS_FAILED, payload: 'unauthorized', ts_ms: time++ });
+
+    fw1.tap(ws);
+
+    ws.emit('message', 'c2s_text', false);
+    expected.push({ cid: 1, type: FT.WS_C2S_TEXT, payload: Buffer.from('c2s_text'), ts_ms: time++ });
+
+    fw1.server_sent('s2c_text');
+    expected.push({ cid: 1, type: FT.WS_S2C_TEXT, payload: Buffer.from('s2c_text'), ts_ms: time++ });
+
+    ws.emit('message', 'c2s_buffer', true);
+    expected.push({ cid: 1, type: FT.WS_C2S_BINARY, payload: Buffer.from('c2s_buffer'), ts_ms: time++ });
+
+    fw1.server_sent(Buffer.from('s2c_buffer'));
+    expected.push({ cid: 1, type: FT.WS_S2C_BINARY, payload: Buffer.from('s2c_buffer'), ts_ms: time++ });
+
+    ws.emit('close', 1000);
+    expected.push({ cid: 1, type: FT.WS_C_CLOSE, payload: 1000, ts_ms: time++ });
+
+    // it's highly unlikely that this would be called while the socket is still valid
+    // and concurrently with a client close event, but we're just exercising the method
+    fw1.server_closed(1006);
+    expected.push({ cid: 1, type: FT.WS_S_CLOSE, payload: 1006, ts_ms: time++ });
+
+    // if we don't close the stream, the async iterator won't end, but node doesn't
+    // actually have any socket handles to keep it running. this leads to really
+    // confusing behavior where it seems like some lines of code don't even execute
+    // in the debugger!
+    passthrough.end();
+
+    const actual: RecorderFrame[] = [];
+    for await (const frame of readRecorderFrames(passthrough)) {
+      actual.push(frame);
+    }
+
+    let last_timestamp = 0;
+    for (const [idx, frame] of actual.entries()) {
+      switch (frame.type) {
+        case FT.IGNORE:
+        case FT.ERROR:
+          fail(`unexpectedly decoded a meta FrameType: ${FT[frame.type]}`);
+      }
+
+      expect(frame.ts_ms).toBeGreaterThanOrEqual(last_timestamp);
+      last_timestamp = frame.ts_ms;
+
+      expect(frame).toEqual(expected[idx]);
+    }
+
+    expect(actual.length).toBe(expected.length);
+  });
 });

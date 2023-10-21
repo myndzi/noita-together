@@ -1,147 +1,87 @@
+import ws from 'ws';
 import fs from 'node:fs';
 import PATH from 'node:path';
+import { Socket } from 'node:net';
 import { Writable } from 'node:stream';
 
-import WebSocket from 'ws';
+import { FrameWriter } from './frame_writer';
 
-import { FrameType } from './util';
+type CtorType<T extends new (...args: any) => any> = T extends new (...args: infer As) => infer T
+  ? (...args: As) => T
+  : never;
+type FrameWriterCreator = CtorType<typeof FrameWriter>;
+const defaultFrameWriterCreator = (stream: Writable, id: number) => new FrameWriter(stream, id);
 
 export class Recorder {
-  private readonly path: string;
-  private session?: Writable;
-
-  private lastWarnId = -1;
-  private waitUntil = 0;
   private id = 1;
 
-  private sockets = new WeakMap<WebSocket, WebSocket['send']>();
+  private bySocket = new WeakMap<Socket, FrameWriter>();
+  private byWebSocket = new WeakMap<ws.WebSocket, FrameWriter>();
 
-  constructor(path: string) {
-    this.path = path;
+  protected constructor(
+    private readonly session: Writable,
+    private readonly fwc: FrameWriterCreator = defaultFrameWriterCreator
+  ) {}
+
+  static to<T extends typeof Recorder>(this: T, path: string): Recorder;
+  static to<T extends typeof Recorder>(this: T, stream: Writable): Recorder;
+  static to<T extends typeof Recorder>(this: T, dest: string | Writable): Recorder {
+    if (dest instanceof Writable) {
+      return new this(dest);
+    }
+
+    const stat = fs.statSync(dest);
+    if (!stat.isDirectory()) throw new Error(`Path ${dest} is not a directory`);
+
+    try {
+      fs.accessSync(dest, fs.constants.W_OK);
+    } catch (e) {
+      throw new Error(`Cannot write to ${dest}`);
+    }
+
+    const timestamp = new Date().toISOString();
+    const filename = PATH.resolve(dest, `session-${timestamp}`);
+    const stream = fs.createWriteStream(filename);
+    return new Recorder(stream);
   }
 
-  private warn(warnId: number, msg: string) {
-    const now = Date.now();
-    if (warnId === this.lastWarnId && now < this.waitUntil) return;
+  upgraded(socket: Socket, ws: ws.WebSocket, uaccess: number): FrameWriter | undefined {
+    const fw = this.bySocket.get(socket);
+    if (!fw) return undefined;
 
-    this.lastWarnId = warnId;
-    this.waitUntil = now + 5_000; // wait 5 seconds before printing the same message again
+    this.byWebSocket.set(ws, fw);
+    this.bySocket.delete(socket);
 
-    console.log('[recorder]', msg);
+    fw.upgraded(uaccess);
+
+    return fw;
   }
 
-  private writeFrame(type: FrameType, id: number, _data: Buffer | number | string): void {
-    if (!(this.session instanceof Writable)) {
-      this.warn(0, 'incorrect usage: session not open');
-      return;
-    }
-    if (!this.session.writable) {
-      this.warn(1, 'session not writable');
-      return;
-    }
+  failed(socket: Socket, reason: string): void {
+    const fw = this.bySocket.get(socket);
+    if (!fw) return;
 
-    let data: Buffer;
-    switch (type) {
-      case FrameType.WS_OPEN:
-        data = Buffer.from(_data as string);
-        break;
-      case FrameType.WS_CLOSE:
-        // https://www.rfc-editor.org/rfc/rfc6455.html#section-7.4
-        // close codes are from 0-4999, but the most common are
-        // 1006 (terminated abnormally) or 1000 (normal closure)
-        data = Buffer.alloc(2);
-        data.writeUInt16LE(_data as number);
-        break;
-      case FrameType.WS_C2S_BINARY:
-      case FrameType.WS_S2C_BINARY:
-      case FrameType.WS_C2S_TEXT:
-      case FrameType.WS_S2C_TEXT:
-        // ws.send(data: number) calls data.toString(); see:
-        // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/websocket.js#L452
-        data = typeof _data === 'number' ? Buffer.from(_data.toString()) : Buffer.from(_data);
-        break;
-    }
+    fw.failed(reason);
 
-    // prettier-ignore
-    {
-      const header = Buffer.alloc(4 + 8 + 2 + 1);         let pos =  0;
-      header.writeUInt32LE(header.length + data.length);      pos += 4; // frame size
-      header.writeDoubleLE(Date.now(), pos);                  pos += 8; // timestamp
-      header.writeUInt16LE(id, pos);                          pos += 2; // connection id
-      header.writeUInt8(type, pos);                           pos += 1; // message type
-
-      this.session.write(header);
-      this.session.write(data);
-    }
+    this.bySocket.delete(socket);
   }
 
-  private server_sent(id: number): WebSocket['send'] {
-    // for best accuracy, we steal ws's `toBuffer`, which it calls internally for sender.send's arguments
-    const toBuffer: (data: any) => Buffer = require('ws/lib/buffer-util').toBuffer;
+  connected(socket: Socket, url: string): FrameWriter | undefined {
+    if (!this.session) return undefined;
 
-    // nt websocket server only calls ws.send in User.js, with no opts.
-    // isBinary is thus inferred from the data type of the data, see
-    // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/websocket.js#L460
-    return _data => {
-      // we unfortunately have to "reproduce" ws.send's behavior here, since we can't easily
-      // tap into what it _actually_ did
-      let data: Buffer;
-      let isBinary: boolean;
+    const fw = this.bySocket.get(socket) ?? this.fwc(this.session, this.id++);
+    this.bySocket.set(socket, fw);
 
-      switch (typeof _data) {
-        case 'number':
-          data = toBuffer(_data.toString());
-          isBinary = false;
-          break;
-        case 'string':
-          data = toBuffer(_data);
-          isBinary = false;
-          break;
-        default:
-          data = toBuffer(_data);
-          isBinary = true;
-          break;
-      }
+    fw.connected(url);
 
-      this.writeFrame(isBinary ? FrameType.WS_S2C_BINARY : FrameType.WS_S2C_TEXT, id, data);
-    };
+    return fw;
   }
 
-  tap(socket: WebSocket, url: string): WebSocket['send'] {
-    const prev_ss = this.sockets.get(socket);
-    if (prev_ss) return prev_ss;
-
-    const id = this.id++;
-
-    this.writeFrame(FrameType.WS_OPEN, id, url);
-
-    socket.once('close', (code: number) =>
-      // type RawData = Buffer | ArrayBuffer | Buffer[];
-      // https://github.com/websockets/ws/blob/7f4e1a75afbcee162cff0d44000b4fda82008d05/lib/receiver.js#L537-L543
-      // binarytype is 'nodebuffer' by default, so data should reliably be a Buffer instance
-
-      this.writeFrame(FrameType.WS_CLOSE, id, code)
-    );
-    socket.on('message', (data: WebSocket.RawData, isBinary: boolean) =>
-      this.writeFrame(isBinary ? FrameType.WS_C2S_BINARY : FrameType.WS_C2S_TEXT, id, <Buffer>data)
-    );
-
-    const ss = this.server_sent(id);
-    this.sockets.set(socket, ss);
-    return ss;
+  frameWriter(ws: ws.WebSocket): FrameWriter | undefined {
+    return this.byWebSocket.get(ws);
   }
 
-  open(target?: Writable) {
-    if (this.session instanceof Writable) {
-      this.session.end();
-    }
-
-    if (!target) {
-      const timestamp = new Date().toISOString();
-      const filename = PATH.resolve(this.path, `session-${timestamp}`);
-      this.session = fs.createWriteStream(filename);
-    } else {
-      this.session = target;
-    }
+  close(): void {
+    this.session.end();
   }
 }

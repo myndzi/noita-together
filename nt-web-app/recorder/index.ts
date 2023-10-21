@@ -1,33 +1,30 @@
-import fs from 'node:fs';
 import { Recorder } from './recorder';
 import { ConsolePlayer } from './console_player';
 
 const RECORD_PATH = process.env.RECORD_PATH;
 
 export const recorder = ((): Recorder => {
+  const path = RECORD_PATH;
+  let recorder: Recorder | undefined = undefined;
   try {
-    const path = RECORD_PATH;
-    if (!path) throw 'Recording disabled';
-
-    const stat = fs.statSync(path);
-    if (!stat.isDirectory()) throw `Path ${path} is not a directory`;
-
-    try {
-      fs.accessSync(path, fs.constants.R_OK | fs.constants.W_OK);
-    } catch (e) {
-      throw `Cannot write to ${path}`;
-    }
-
-    return new Recorder(path);
+    if (path) recorder = Recorder.to(path);
   } catch (e) {
-    console.log(`[recorder]: ${e}`);
-
-    const noop = () => {};
-    return {
-      open: noop,
-      tap: () => noop,
-    } as any;
+    console.error(`[recorder]: ${e instanceof Error ? e.message : String(e)}`);
   }
+  if (!recorder) {
+    console.error(`[recorder]: disabled`);
+  }
+
+  const noop = (): undefined => {};
+  type mock = { [K in keyof Recorder]: Recorder[K] } & unknown;
+  const noopRecorder: mock = {
+    close: noop,
+    connected: noop,
+    failed: noop,
+    frameWriter: noop,
+    upgraded: noop,
+  };
+  return noopRecorder as Recorder;
 })();
 
 // playback

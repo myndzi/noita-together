@@ -32,7 +32,7 @@ class Lobby {
             StatsController.create().then((controller)=>this.statsController = controller)
         }
 
-        this.server.on("connection", (socket, req, user, server_sent) => this.OnConnection(socket, req, user, server_sent))
+        this.server.on("connection", (socket, req, user) => this.OnConnection(socket, req, user))
         this.pinger = setInterval(() => {
             this.CheckUsers()
         }, 30000)
@@ -58,12 +58,12 @@ class Lobby {
         })
     }
 
-    OnConnection(socket, req, user, server_sent) {
+    OnConnection(socket, req, user) {
         console.log('OnConnection', user)
         const id = user.id
         const name = user.display_name
         const uaccess = user.uaccess || 0
-        this.AddUser(id, name, uaccess, socket, this, server_sent)
+        this.AddUser(id, name, uaccess, socket, this)
     }
 
     HandleAction(action, user) {
@@ -115,14 +115,14 @@ class Lobby {
         this.rooms.delete(id)
     }
 
-    AddUser(id, name, uaccess, socket, lobby, server_sent) {
+    AddUser(id, name, uaccess, socket, lobby) {
         const user = this.users.get(id)
         if (typeof user !== "undefined") {
             user.onDisconnect()
-            this.users.set(id, new User(id, name, uaccess, socket, lobby, server_sent))
+            this.users.set(id, new User(id, name, uaccess, socket, lobby))
         }
         else {
-            this.users.set(id, new User(id, name, uaccess, socket, lobby, server_sent))
+            this.users.set(id, new User(id, name, uaccess, socket, lobby))
         }
     }
 
