@@ -49,8 +49,22 @@ export class FrameWriter {
   }
 
   server_sent: ws.WebSocket['send'] = _data => {
-    const { isBinary, data } = wsData(_data);
-    this.writeFrame(isBinary ? FrameType.WS_S2C_BINARY : FrameType.WS_S2C_TEXT, this.id, data);
+    if (Array.isArray(_data)) {
+      // TODO: clean up User.Write's manual framing behavior
+      //
+      // `ws` Sender.Frame returns a [header, data] tuple the way we're using it,
+      // but it can also return a [data] tuple when the readonly and mask options
+      // are both true. In either case, the actual data we want to record is the
+      // last item of the array. This is what _would_ have been passed into the
+      // `ws.send()` method via the public API.
+      //
+      // pre-framed data is always sent as binary due to specifying opcode 2 in
+      // LobbyUtils.MakeFrame
+      this.writeFrame(FrameType.WS_S2C_BINARY, this.id, _data[_data.length - 1]);
+    } else {
+      const { isBinary, data } = wsData(_data);
+      this.writeFrame(isBinary ? FrameType.WS_S2C_BINARY : FrameType.WS_S2C_TEXT, this.id, data);
+    }
   };
 
   private client_closed(code: number) {

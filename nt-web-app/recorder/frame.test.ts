@@ -1,44 +1,44 @@
 import { PassThrough } from 'node:stream';
 
-import { FrameType, PartialFrame, readFrom, writeTo } from './frame';
+import { FrameType as FT, PartialFrame, readFrom, writeTo } from './frame';
 
 describe('frames', () => {
   const cases: PartialFrame<'type' | 'payload'>[] = [
-    { type: FrameType.WS_OPEN, payload: 'https://example.com/ws/token' },
-    { type: FrameType.WS_FAILED, payload: 'oh noes' },
-    { type: FrameType.WS_UPGRADED, payload: 0 },
-    { type: FrameType.WS_UPGRADED, payload: 1 },
-    { type: FrameType.WS_C2S_BINARY, payload: Buffer.from('buffer') },
-    { type: FrameType.WS_C2S_TEXT, payload: Buffer.from('text') },
-    { type: FrameType.WS_S2C_BINARY, payload: Buffer.from('buffer') },
-    { type: FrameType.WS_S2C_TEXT, payload: Buffer.from('text') },
-    { type: FrameType.WS_C_CLOSE, payload: 1006 },
-    { type: FrameType.WS_S_CLOSE, payload: 1006 },
+    { type: FT.WS_OPEN, payload: 'https://example.com/ws/token' },
+    { type: FT.WS_FAILED, payload: 'oh noes' },
+    { type: FT.WS_UPGRADED, payload: 0 },
+    { type: FT.WS_UPGRADED, payload: 1 },
+    { type: FT.WS_C2S_BINARY, payload: Buffer.from('buffer') },
+    { type: FT.WS_C2S_TEXT, payload: Buffer.from('text') },
+    { type: FT.WS_S2C_BINARY, payload: Buffer.from('buffer') },
+    { type: FT.WS_S2C_TEXT, payload: Buffer.from('text') },
+    { type: FT.WS_C_CLOSE, payload: 1006 },
+    { type: FT.WS_S_CLOSE, payload: 1006 },
   ];
 
   it('tests every (non-meta) frame type', () => {
-    const availableTypes = new Set<number>(
-      [...Object.values(FrameType)].filter((v): v is number => typeof v === 'number')
-    );
-    availableTypes.delete(FrameType.IGNORE);
-    availableTypes.delete(FrameType.ERROR);
+    const availableTypes = new Set<number>([...Object.values(FT)].filter((v): v is number => typeof v === 'number'));
+    availableTypes.delete(FT.IGNORE);
+    availableTypes.delete(FT.ERROR);
     for (const test of cases) {
       availableTypes.delete(test.type);
     }
     expect(availableTypes.size).toBe(0);
   });
 
-  it.each(cases.map(test => [FrameType[test.type], test] as [string, PartialFrame<'type' | 'payload'>]))(
+  it.each(cases.map(test => [FT[test.type], test] as [string, PartialFrame<'type' | 'payload'>]))(
     '%p round-trip',
     (_, { type, payload }) => {
       const pt = new PassThrough();
+
       writeTo(pt, type, 0, 0, payload);
       writeTo(pt, type, 1, 0, payload);
+
       const buf = pt.read();
 
       const f1 = readFrom(buf);
-      if (f1.type === FrameType.IGNORE || f1.type === FrameType.ERROR) {
-        fail(`unexpected frame type: ${FrameType[f1.type]}`);
+      if (f1.type === FT.IGNORE || f1.type === FT.ERROR) {
+        fail(`unexpected frame type: ${FT[f1.type]}`);
       }
       expect({
         connection_id: f1.cid,
@@ -51,8 +51,8 @@ describe('frames', () => {
       });
 
       const f2 = readFrom(buf.subarray(f1.size));
-      if (f2.type === FrameType.IGNORE || f2.type === FrameType.ERROR) {
-        fail(`unexpected frame type: ${FrameType[f2.type]}`);
+      if (f2.type === FT.IGNORE || f2.type === FT.ERROR) {
+        fail(`unexpected frame type: ${FT[f2.type]}`);
       }
       expect({
         connection_id: f2.cid,
@@ -63,6 +63,8 @@ describe('frames', () => {
         type,
         payload,
       });
+
+      pt.end();
     }
   );
 });

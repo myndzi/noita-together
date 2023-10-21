@@ -90,6 +90,13 @@ class User {
         this.frameWriter?.server_sent(data);
     }
 
+    /**
+     * Uses the `ws` library's internal `sender.sendFrame` to send a pre-framed
+     * tuple of buffers (for some reason?)
+     *
+     * @param {Buffer[]} data WebSocket frame. Either [buf] - the data, or [header, buf] - the data and a header
+     * @param {boolean} allowQueue unused
+     */
     Write(data, allowQueue) {
         /*
         if (allowQueue && this.socket.bufferedAmount > THRESHOLD) {
@@ -99,7 +106,7 @@ class User {
         }
         */
         this.socket._sender.sendFrame(data)//why no worky
-        this.frameWriter?.server_sent(data);
+        this.frameWriter?.server_sent(data[1]);
     }
     /*
     Queue() {

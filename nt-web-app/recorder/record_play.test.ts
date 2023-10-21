@@ -5,20 +5,54 @@ import { Writable, PassThrough } from 'node:stream';
 
 import { Recorder } from './recorder';
 import { FrameWriter } from './frame_writer';
-import { FrameType as FT, PartialFrame, RecorderFrame, readRecorderFrames } from './frame';
+import { FrameType as FT, PartialFrame, RecorderFrame, readFrom, readRecorderFrames } from './frame';
+import { MakeFrame } from '../websocket/lobby/LobbyUtils';
 
-const clock = (() => {
-  let clocktime = 1337;
+const clock = (initial: number) => {
+  let clocktime = initial;
   return () => clocktime++;
-})();
+};
 
 class TestRecorder extends Recorder {
   protected constructor(session: Writable) {
-    super(session, (stream: Writable, id: number) => new FrameWriter(stream, id, clock));
+    const tick = clock(1337);
+    const fwc = (stream: Writable, id: number) => new FrameWriter(stream, id, tick);
+    super(session, fwc);
   }
 }
 
 describe('record playback', () => {
+  it('test', () => {
+    const tick = clock(1234);
+    expect(tick()).toEqual(1234);
+    expect(tick()).toEqual(1235);
+    const tick2 = clock(333);
+    expect(tick2()).toEqual(333);
+    expect(tick2()).toEqual(334);
+  });
+  it("deals with User.Write's pre-framing behavior", () => {
+    const passthrough = new PassThrough();
+    const recorder = TestRecorder.to(passthrough);
+
+    const frame1 = MakeFrame('foo');
+    recorder.connected({} as any, 'hi')?.server_sent(frame1);
+
+    let buf = passthrough.read();
+
+    // discard the "connected" frame
+    const connected_frame = readFrom(buf);
+    buf = buf.subarray(connected_frame.size);
+
+    const { size, ...frame } = readFrom(buf);
+
+    if (frame.type !== FT.WS_S2C_BINARY) {
+      fail('Incorrect frame type');
+    }
+
+    expect(frame.payload).toEqual(Buffer.from('foo'));
+
+    passthrough.end();
+  });
   it('reads back the same written sequence', async () => {
     const socket = {} as unknown as Socket;
     const ws = new EventEmitter() as unknown as ws.WebSocket;
