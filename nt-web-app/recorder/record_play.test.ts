@@ -17,7 +17,8 @@ recorder.open(passthrough);
 const url = 'http://example.com/ws/token';
 
 const server_sent = recorder.tap(ws, url);
-recorder.tap(ws, 'ignored'); // should only hook events once
+const ss = recorder.tap(ws, 'ignored'); // should only hook events once
+assert.strictEqual(server_sent, ss, 'unexpectedly got a different server_sent function from .tap with the same socket');
 
 ws.emit('message', 'c2s_string', false);
 server_sent('s2c_string');

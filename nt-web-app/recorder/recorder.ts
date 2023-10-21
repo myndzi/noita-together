@@ -14,7 +14,7 @@ export class Recorder {
   private waitUntil = 0;
   private id = 1;
 
-  private sockets = new WeakMap<WebSocket, number>();
+  private sockets = new WeakMap<WebSocket, WebSocket['send']>();
 
   constructor(path: string) {
     this.path = path;
@@ -108,11 +108,10 @@ export class Recorder {
   }
 
   tap(socket: WebSocket, url: string): WebSocket['send'] {
-    const old_id = this.sockets.get(socket);
-    if (old_id) return this.server_sent(old_id);
+    const prev_ss = this.sockets.get(socket);
+    if (prev_ss) return prev_ss;
 
     const id = this.id++;
-    this.sockets.set(socket, id);
 
     this.writeFrame(FrameType.WS_OPEN, id, url);
 
@@ -127,7 +126,9 @@ export class Recorder {
       this.writeFrame(isBinary ? FrameType.WS_C2S_BINARY : FrameType.WS_C2S_TEXT, id, <Buffer>data)
     );
 
-    return this.server_sent(id);
+    const ss = this.server_sent(id);
+    this.sockets.set(socket, ss);
+    return ss;
   }
 
   open(target?: Writable) {
