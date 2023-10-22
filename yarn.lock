@@ -1551,6 +1551,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/double-ended-queue@npm:^2.1.5":
+  version: 2.1.5
+  resolution: "@types/double-ended-queue@npm:2.1.5"
+  checksum: dd09de6e968ca3a77e46ce1838653a6ccacfc1e66c54bd6bfc4ae77696b8b32738087c7b66dbd7a5f50a46c1376518af77396de9db9f22a770f6a3ca00dbed77
+  languageName: node
+  linkType: hard
+
 "@types/express-serve-static-core@npm:*, @types/express-serve-static-core@npm:^4.17.33":
   version: 4.17.37
   resolution: "@types/express-serve-static-core@npm:4.17.37"
@@ -5768,6 +5775,13 @@ __metadata:
   version: 9.0.2
   resolution: "dotenv@npm:9.0.2"
   checksum: 6b7980330a653089bc9b83362248547791151ee74f9881eb223ac2f4d641b174b708f77315d88708b551d45b4177afd3ba71bca4832f8807e003f71c2a0f83e7
+  languageName: node
+  linkType: hard
+
+"double-ended-queue@npm:^2.1.0-0":
+  version: 2.1.0-0
+  resolution: "double-ended-queue@npm:2.1.0-0"
+  checksum: 3030cf9dcf6f8e7d8cb6ae5b7304890445d7c32233a614e400ba7b378086ad76f5822d0e501afd5ffe0af1de4bcb842fa23d4c79174d54f6566399435fafc271
   languageName: node
   linkType: hard
 
@@ -11657,6 +11671,7 @@ __metadata:
   resolution: "nt-web-app@workspace:nt-web-app"
   dependencies:
     "@popperjs/core": ^2.6.0
+    "@types/double-ended-queue": ^2.1.5
     "@types/jsonwebtoken": ^9.0.2
     "@types/jwk-to-pem": ^2.0.1
     "@types/node": 20.2.5
@@ -11664,6 +11679,7 @@ __metadata:
     "@types/react-dom": 18.2.4
     "@types/ws": 8.5.5
     dotenv: ^16.3.1
+    double-ended-queue: ^2.1.0-0
     eslint: 8.41.0
     eslint-config-next: 13.4.4
     jest: ^29.6.0

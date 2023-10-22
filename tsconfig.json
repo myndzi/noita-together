@@ -16,8 +16,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
-    "incremental": true, 
+    "incremental": true,
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "../jest.config.ts"],
-  "exclude": ["node_modules"]
+  "include": ["nt-web-app/next-env.d.ts", "nt-web-app/**/*.ts", "nt-web-app/**/*.tsx", "jest.config.ts"],
+  "exclude": ["**/node_modules"]
 }

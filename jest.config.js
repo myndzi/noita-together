@@ -3,4 +3,5 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['./nt-web-app/recorder'],
+  testMatch: ['**/*.test.ts'],
 };
