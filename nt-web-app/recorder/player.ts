@@ -1,10 +1,16 @@
 import fs from 'node:fs';
 import PATH from 'node:path';
+import jwt from 'jsonwebtoken';
 
-import { RecorderFrame, readRecorderFrames } from './frame';
+import { RecorderFrame, StringPayloadTypes, readRecorderFrames } from './frame';
+
+const SECRET_ACCESS = process.env.SECRET_JWT_ACCESS;
 
 export abstract class Player {
   private readonly absdir: string;
+
+  protected lastTimestamp = 0;
+  protected usernames = new Map<number, string>();
 
   constructor(path: string) {
     const stat = fs.statSync(path);
@@ -17,6 +23,24 @@ export abstract class Player {
     }
 
     this.absdir = PATH.resolve(path);
+  }
+
+  protected jwtUsername(frame: Extract<RecorderFrame, { type: StringPayloadTypes }>): string {
+    if (!SECRET_ACCESS) return '';
+    const token = decodeURIComponent(PATH.basename(frame.payload));
+
+    try {
+      const data = jwt.verify(token, SECRET_ACCESS, { ignoreExpiration: true, ignoreNotBefore: true }) as any;
+      return data.preferred_username ?? data.sub ?? frame.cid.toString();
+    } catch (e) {
+      return `<${e instanceof Error ? e.message : String(e)}>`;
+    }
+  }
+
+  protected waitTime(timestamp: number) {
+    const diff = timestamp - this.lastTimestamp;
+    this.lastTimestamp = timestamp;
+    return diff;
   }
 
   abstract tick(_frame: RecorderFrame): Promise<void>;

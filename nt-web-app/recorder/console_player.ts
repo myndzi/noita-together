@@ -9,27 +9,6 @@ import { FrameType, RecorderFrame, StringPayloadTypes } from './frame';
 const SECRET_ACCESS = process.env.SECRET_JWT_ACCESS;
 
 export class ConsolePlayer extends Player {
-  private lastTimestamp = 0;
-  private usernames = new Map<number, string>();
-
-  private jwtUsername(frame: Extract<RecorderFrame, { type: StringPayloadTypes }>): string {
-    if (!SECRET_ACCESS) return '';
-    const token = decodeURIComponent(PATH.basename(frame.payload));
-
-    try {
-      const data = jwt.verify(token, SECRET_ACCESS, { ignoreExpiration: true, ignoreNotBefore: true }) as any;
-      return data.preferred_username ?? data.sub ?? frame.cid.toString();
-    } catch (e) {
-      return `<${e instanceof Error ? e.message : String(e)}>`;
-    }
-  }
-
-  private waitTime(timestamp: number) {
-    const diff = timestamp - this.lastTimestamp;
-    this.lastTimestamp = timestamp;
-    return diff;
-  }
-
   async tick(frame: RecorderFrame) {
     let msg: any;
     let name: string | undefined = undefined;
