@@ -1,8 +1,9 @@
-const sum = (a: number, b: number) => a + b;
+import Deque from 'double-ended-queue';
 
 export class WindowedStats {
-  private timestamps: number[] = [];
-  private values: number[] = [];
+  private timestamps = new Deque<number>();
+  private values = new Deque<number>();
+  private windowTotal = 0;
 
   private _total: number = 0;
   private _peakRate: number = 0;
@@ -17,34 +18,20 @@ export class WindowedStats {
   }
 
   push(ts_ms: number, value: number) {
-    const cutoff = ts_ms - this.window_size_ms;
+    var cutoff = ts_ms - this.window_size_ms;
 
-    const numValues = this.values.length;
-    if (numValues > 0) {
-      const pos = this.timestamps.findIndex(v => v >= cutoff);
-      if (pos === -1) {
-        this.timestamps.length = 0;
-        this.values.length = 0;
-      } else if (pos > 0) {
-        // [a, b, c]
-        // found = b (idx=1)
-        // delete (idx=1) elements starting at 0
-        // [a, b, c].splice(0, 1) -> [b, c]
-        this.timestamps.splice(0, pos);
-        this.values.splice(0, pos);
-      }
+    for (var front = this.timestamps.peekFront(); front && front < cutoff; front = this.timestamps.peekFront()) {
+      this.windowTotal -= this.values.shift()!;
+      this.timestamps.shift();
     }
 
     this.timestamps.push(ts_ms);
     this.values.push(value);
-
-    this._maxSamples = Math.max(this._maxSamples, numValues);
+    this.windowTotal += value;
 
     this._total += value;
-
-    // (Ns / window_size) / divisor -> (Ns / window_size) * (1 / divisor)
-    const rate = this.values.reduce(sum, 0) / this.factor;
-    this._peakRate = Math.max(this._peakRate, rate);
+    this._maxSamples = Math.max(this._maxSamples, this.values.length);
+    this._peakRate = Math.max(this._peakRate, this.windowTotal / this.factor);
   }
 
   total(): number {

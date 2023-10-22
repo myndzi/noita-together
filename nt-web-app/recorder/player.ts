@@ -60,7 +60,7 @@ export abstract class Player {
 
     const stream = fs.createReadStream(abspath);
 
-    for await (const frame of readRecorderFrames(stream)) {
+    for await (const frame of readRecorderFrames(stream, process.env.PROGRESS ? stat.size : undefined)) {
       this.tick(frame);
     }
 

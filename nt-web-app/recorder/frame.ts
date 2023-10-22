@@ -189,13 +189,21 @@ export const readFrom = (buf: Buffer): WithSize<RecorderFrame> => {
   }
 };
 
-export async function* readRecorderFrames(stream: Readable): AsyncGenerator<RecorderFrame, number> {
+export async function* readRecorderFrames(stream: Readable, size?: number): AsyncGenerator<RecorderFrame, number> {
   let count = 0;
   let abspos = 0;
+  let pct: string = '';
 
   let acc: Buffer = Buffer.of();
 
   for await (const chunk of stream) {
+    if (size) {
+      const newPct = (Math.round(((abspos + chunk.length) / size) * 1000) / 10).toFixed(1);
+      if (pct !== newPct) {
+        console.error(`${newPct}%`);
+      }
+      pct = newPct;
+    }
     acc = Buffer.concat([acc, chunk]);
 
     while (true) {

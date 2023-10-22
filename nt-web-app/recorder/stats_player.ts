@@ -144,6 +144,7 @@ export class StatsPlayer extends Player {
   }
 }
 
+// PROGRESS=1 node --nolazy -r ts-node/register/transpile-only nt-web-app/recorder/stats_player.ts <path-to-file>
 if (require.main === module) {
   if (process.argv.length < 3) {
     const relpath = PATH.relative(__dirname, process.argv[1]);
