@@ -71,7 +71,7 @@ class NoitaTogetherWebsocket {
         .replace(/[\n\r]/g, '\n')
         .split('\n')
         .filter(a => user.display_name === a || `${user.display_name}:dev` === a);
-      let e = undefined;
+      let e: number | undefined = undefined;
       if (uaccessDataForUser.length === 1) {
         e = uaccessDataForUser[0].endsWith(':dev') ? 3 : 2;
       }

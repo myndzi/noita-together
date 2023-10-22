@@ -11,7 +11,7 @@ function noop() {}
  */
 function MakeFrame(data: BufferLike): Buffer[] {
   let readOnly = true;
-  let buf = null;
+  let buf: Buffer | null = null;
   if (data instanceof ArrayBuffer) {
     buf = Buffer.from(data);
   } else if (ArrayBuffer.isView(data)) {
