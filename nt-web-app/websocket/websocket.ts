@@ -41,7 +41,7 @@ class NoitaTogetherWebsocket {
   startServer() {
     this.wsServer = http.createServer();
     this.wsServer.listen(this.port, () => {
-      console.log('Running.');
+      console.log('Listening on', this.port);
       this.subscribeEvents();
     });
   }
@@ -156,15 +156,16 @@ class NoitaTogetherWebsocket {
     }
     if (this.offlineCode) return null;
     const verify: Promise<TwitchDecodedToken> = verifyJwt(token, SECRET_ACCESS);
-    return verify
-      .then((jwtObject: TwitchDecodedToken) => {
-        return NoitaTogetherWebsocket.GetUserFromDB(jwtObject.sub);
-      })
-      .catch(e => {
-        console.error('We failed to validate JWT :(. No user!');
-        console.error(e);
-        return null;
-      });
+    return verify.then(user => new User(user.sub, user.preferred_username, {}, 'local'));
+    // return verify
+    //   .then((jwtObject: TwitchDecodedToken) => {
+    //     return NoitaTogetherWebsocket.GetUserFromDB(jwtObject.sub);
+    //   })
+    //   .catch(e => {
+    //     console.error('We failed to validate JWT :(. No user!');
+    //     console.error(e);
+    //     return null;
+    //   });
   }
 }
 

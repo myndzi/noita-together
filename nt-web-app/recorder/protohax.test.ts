@@ -286,4 +286,15 @@ describe('ProtoHax', () => {
       });
     });
   });
+
+  describe('empty values', () => {
+    it('returns defaults', () => {
+      const empty = Buffer.of();
+      expect(new ProtoHax(empty).String()).toEqual('');
+      expect(new ProtoHax(empty).Bytes()).toEqual(empty);
+      expect(new ProtoHax(empty).Int32()).toEqual(0);
+      expect(new ProtoHax(empty).Enum()).toEqual(0);
+      expect(new ProtoHax(empty).Bool()).toEqual(false);
+    });
+  });
 });

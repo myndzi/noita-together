@@ -13,6 +13,8 @@ export const enum DigResult {
   ERROR = 2,
 }
 
+export const EMPTY_BUFFER = Buffer.of();
+
 type Packable = keyof ProtoHax &
   (
     | 'Int32'
@@ -34,12 +36,13 @@ type Unpacked<T extends Packable> = ProtoHax[T] extends () => infer P ? P : neve
 
 export class ProtoHax {
   private pos: number = 0;
-  private end: number;
-  private ok: boolean = true;
   private last: number = 0;
+  private end: number;
+  private ok: boolean;
 
   constructor(private buf: Buffer) {
     this.end = buf.length;
+    this.ok = this.pos < this.end;
   }
 
   atEnd() {
@@ -78,7 +81,6 @@ export class ProtoHax {
   // skip the specified number of bytes
   private skipBytes(bytes: number) {
     this.pos += bytes;
-    this.ok = this.pos < this.buf.length;
   }
 
   private skipGroup(sgroup: number) {
@@ -211,18 +213,18 @@ export class ProtoHax {
     }
   }
   Enum(): number {
-    var val = this.readVarint32();
     if (!this.ok) return 0;
+    var val = this.readVarint32();
     return val;
   }
   Sint32(): number {
-    var zze = this.readVarint32();
     if (!this.ok) return 0;
+    var zze = this.readVarint32();
     return (zze >>> 1) ^ -(zze & 1);
   }
   Sint64(): bigint {
-    var zze = this.readVarint64();
     if (!this.ok) return 0n;
+    var zze = this.readVarint64();
     return (zze >> 1n) ^ -(zze & 1n);
   }
 
@@ -273,7 +275,7 @@ export class ProtoHax {
   // len-prefix := size (message | string | bytes | packed);
   //                 size encoded as int32 varint
   Bytes(): Buffer {
-    if (!this.ok) return Buffer.of();
+    if (!this.ok) return EMPTY_BUFFER;
     return this.buf.subarray(this.pos, this.end);
   }
 
@@ -294,10 +296,10 @@ export class ProtoHax {
   }
 
   private seek(fieldId: number) {
+    if (!this.ok) return;
     this.varint();
     while (this.last >>> 3 !== fieldId) {
       this.skip();
-      this.ok = this.pos < this.end;
       if (!this.ok) break;
       this.varint();
     }
@@ -327,6 +329,7 @@ export class ProtoHax {
    */
   with(fieldId: number): ProtoHax {
     this.seek(fieldId);
+    if (!this.ok) return this;
     var size = this.size();
     this.end = size ? this.pos + size : this.end;
     return this;
@@ -337,6 +340,7 @@ export class ProtoHax {
    * with a new ProtoHax instance if found.
    */
   if(fieldId: number, cb: (phax: ProtoHax) => void): ProtoHax {
+    if (!this.ok) return this;
     this.seek(fieldId);
     var size = this.size();
     var val;

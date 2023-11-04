@@ -62,7 +62,7 @@ class Lobby {
         console.log('OnConnection', user)
         const id = user.id
         const name = user.display_name
-        const uaccess = user.uaccess || 0
+        const uaccess = 100; //user.uaccess || 0
         this.AddUser(id, name, uaccess, socket, this)
     }
 

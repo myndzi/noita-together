@@ -44,7 +44,7 @@ export abstract class Player {
   }
 
   abstract tick(_frame: RecorderFrame): Promise<void>;
-  abstract done(): void;
+  abstract done(): Promise<void>;
 
   async play(filename: string) {
     const abspath = PATH.resolve(this.absdir, filename);
@@ -58,12 +58,12 @@ export abstract class Player {
       throw new Error(`Cannot read from ${abspath}`);
     }
 
-    const stream = fs.createReadStream(abspath);
+    const stream = fs.createReadStream(abspath, { highWaterMark: 8 * 1024 * 1024 });
 
     for await (const frame of readRecorderFrames(stream, process.env.PROGRESS ? stat.size : undefined)) {
-      this.tick(frame);
+      await this.tick(frame);
     }
 
-    this.done();
+    await this.done();
   }
 }

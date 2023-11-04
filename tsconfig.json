@@ -6,7 +6,7 @@
     "skipLibCheck": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
+    "noEmit": false,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "emitDecoratorMetadata": true,
@@ -17,6 +17,7 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "outDir": "dist"
   },
   "include": ["nt-web-app/next-env.d.ts", "nt-web-app/**/*.ts", "nt-web-app/**/*.tsx", "jest.config.ts"],
   "exclude": ["**/node_modules"]

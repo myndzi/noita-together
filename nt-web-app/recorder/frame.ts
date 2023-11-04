@@ -144,7 +144,7 @@ export const readFrom = (buf: Buffer): WithSize<RecorderFrame> => {
   const type = frame.readUint8(pos);                 pos += 1;
   const data = frame.subarray(pos);
 
-  if (!isFrameType(type)) return {type: FrameType.ERROR, error: `Invalid frame type: ${type}`, size};
+  // if (!isFrameType(type)) return {type: FrameType.ERROR, error: `Invalid frame type: ${type}`, size};
 
   switch (type) {
     // string payloads

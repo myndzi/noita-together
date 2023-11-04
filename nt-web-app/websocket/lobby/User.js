@@ -144,7 +144,7 @@ class User {
                 console.log(`[USER-${this.id}-${this.rateLimit}]${this.name} is being rate limited`)
                 return
             }
-            this.rateLimit = this.rateLimit + 1
+            // this.rateLimit = this.rateLimit + 1
             const clientMsg = decode(data)
             if (!clientMsg) {
                 //TODO Error ?

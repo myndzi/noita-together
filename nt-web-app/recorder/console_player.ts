@@ -1,5 +1,4 @@
 import PATH from 'node:path';
-import jwt from 'jsonwebtoken';
 
 import { Envelope } from '../websocket/gen/messages_pb';
 
@@ -61,8 +60,20 @@ export class ConsolePlayer extends Player {
     console.log(`[${frame_type}: ${conn_id} @ +${time_since}]${namePrefix}`, msg);
   }
 
-  done() {
+  async done() {
     if (!SECRET_ACCESS)
       console.error('Userdata decoding was not performed because SECRET_ACCESS env variable was unset');
   }
+}
+
+//node --nolazy -r ts-node/register/transpile-only nt-web-app/recorder/websocket_player.ts <path-to-file>
+if (require.main === module) {
+  if (process.argv.length < 2) {
+    const relpath = PATH.relative(__dirname, process.argv[1]);
+    console.error(`Usage: npx ts-node ${relpath} <session file>`);
+    process.exit(1);
+  }
+  const filepath = PATH.resolve(process.argv[2]);
+  const player = new ConsolePlayer(PATH.dirname(filepath));
+  player.play(PATH.basename(filepath));
 }

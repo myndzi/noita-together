@@ -104,7 +104,7 @@ export class StatsPlayer extends Player {
     this.stats.set(cid, gameStats);
   }
 
-  done() {
+  async done() {
     for (const [cid, stats] of this.stats.entries()) {
       this.printStats(cid, this.gameInfos.get(cid), stats);
     }
