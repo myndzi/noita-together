@@ -5,9 +5,13 @@ const {encodeLobbyMsg, encodeGameMsg, decode} = require("./handlers/messageHandl
 const appEvent = require("./appEvent")
 const noita = require("./noita")
 
-const host = (() => {
+const {host, sni} = (() => {
     const prefix = process.env.VUE_APP_LOBBY_SERVER_WS_URL_BASE || `wss://${process.env.VUE_APP_HOSTNAME_WS}` || 'wss://noitatogether.com/ws/'
-    return prefix.endsWith('/') ? prefix : `${prefix}/`
+    const host = prefix.endsWith('/') ? prefix : `${prefix}/`;
+    const url = new URL(host);
+    const sni = url.hostname;
+
+    return { host, sni };
 })();
 
 const print = true
@@ -16,7 +20,9 @@ module.exports = (data) => {
     noita.setUser({ userId: user.userId, name: user.name, host: false })
     let isHost = false
     console.log(`Connect to lobby server ${host}`)
-    let client = new ws(`${host}${data.token}`)
+    let client = new ws(`${host}${data.token}`, {
+        servername: sni,
+    });
     
     const lobby = {
         sHostStart: (payload) => {
