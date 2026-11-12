@@ -24,7 +24,7 @@
     "build-proto": "yarn regenerate-proto-server && yarn regenerate-proto-client"
   },
   "dependencies": {
-    "axios": "^1.4.0",
+    "axios": "^1.20.0",
     "protobufjs": "^6.10.2"
   },
   "devDependencies": {
